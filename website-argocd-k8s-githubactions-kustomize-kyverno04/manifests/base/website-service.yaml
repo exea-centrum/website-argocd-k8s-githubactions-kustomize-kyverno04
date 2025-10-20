@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: davtrogr-website-service
+  labels:
+    app: davtrogr-website-app
+    release: prometheus-stack # Wymagane przez Prometheus Operator
+spec:
+  type: ClusterIP
+  selector: { app: davtrogr-website-app }
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
