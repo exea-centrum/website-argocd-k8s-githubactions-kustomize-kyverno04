@@ -1,18 +1,3 @@
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-
 resources:
-- postgres-deployment.yaml
-- postgres-service.yaml
-- website-deployment.yaml
-- website-service.yaml
-
-secretGenerator:
-- name: postgres-secret
-  literals:
-  - password=bardzotajnehaslo123 
-
-# Definicja obrazu, która zostanie nadpisana przez GitHub Actions
-images:
-- name: ghcr.io/exea-centrum/website-argocd-k8s-githubactions-kustomize-kyverno04
-  newTag: latest # Tag zostanie zaktualizowany przez CI/CD
+  - deployment.yaml
+  - service.yaml
