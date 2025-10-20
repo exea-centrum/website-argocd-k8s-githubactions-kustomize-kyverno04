@@ -36,8 +36,8 @@ var (
 <ul>
     <li><strong>Język Backend:</strong> GoLang (z metrykami Prometheus)</li>
     <li><strong>Orkiestracja:</strong> MicroK8s</li>
-    <li><strong>Wdrożenie GitOps:</strong> ArgoCD & Kustomize (pobrane z GitHuba)</li>
-    <li><strong>CI/CD:</strong> GitHub Actions (budowanie i push obrazu)</li>
+    <li><strong>Wdrożenie GitOps:</strong> ArgoCD & Kaniko (budowanie obrazu w klastrze)</li>
+    <li><strong>CI/CD:</strong> Kube Native (Kaniko Job)</li>
     <li><strong>Baza Danych:</strong> PostgreSQL (w osobnym Deployment)</li>
 </ul>`
 )

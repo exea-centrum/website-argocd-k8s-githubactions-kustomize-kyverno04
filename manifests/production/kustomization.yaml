@@ -8,10 +8,19 @@ resources:
 - ingress.yaml
 - servicemonitor.yaml
 
-# Zmiana obrazu na publiczny/rejestrowy
-images:
-- name: website-argocd-k8s-githubactions-kustomize-kyverno04:placeholder
-  newName: ghcr.io/exea-centrum/website-argocd-k8s-githubactions-kustomize-kyverno04
-  newTag: latest # Będzie aktualizowane przez GitHub Actions po każdym buildzie
+# Adnotacje dla Kaniko Job:
+# 1. Sync Wave -1 (wykonaj Job przed Deploymentem)
+# 2. Hook do usunięcia Job'a po sukcesie (w ArgoCD)
+patches:
+- patch: |-
+    - op: add
+      path: /metadata/annotations
+      value:
+        argocd.argoproj.io/sync-wave: "-1"
+        argocd.argoproj.io/hook: PostSync
+        argocd.argoproj.io/hook-delete-policy: HookSucceeded
+  target:
+    kind: Job
+    name: kaniko-image-build
 
 namePrefix:

@@ -17,5 +17,14 @@ spec:
     automated:
       prune: true
       selfHeal: true
+    # Kaniko potrzebuje tego, aby ArgoCD wiedziało, że Deployment
+    # może być niedostępny (np. obraz jeszcze nie istnieje)
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
     syncOptions:
       - CreateNamespace=true
+      - ServerSideApply=true # Użyteczne dla kustomize i patches
