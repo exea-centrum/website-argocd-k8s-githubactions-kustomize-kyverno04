@@ -1,242 +1,164 @@
 #!/bin/bash
-set -Eeuo pipefail
+# ====================================================================
+# Skrypt inicjalizacyjny GitOps dla Website (CI/CD + ArgoCD)
+# - Tworzy lokalną strukturę repozytorium GitOps (Go, Dockerfile, Kustomize, ArgoCD, GitHub Actions)
+# - NIE buduje lokalnie obrazu, NIE używa Kaniko.
+# - Po puszu na GitHub: GitHub Actions zbuduje obraz i wypchnie go do GHCR,
+#   a ArgoCD z MicroK8s pobierze manifesty i wdroży aplikację.
+# ====================================================================
 
-# === 1. KONFIGURACJA ===
+set -e
+
+# --- 1. Konfiguracja ---
 REPO_OWNER="exea-centrum"
 REPO_NAME="website-argocd-k8s-githubactions-kustomize-kyverno04"
 NAMESPACE="davtrogr"
 IMAGE_REGISTRY_PATH="ghcr.io/${REPO_OWNER}/${REPO_NAME}"
 IMAGE_TAG="latest"
-REPO_HTTPS_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
+
+echo "🚀 Tworzenie struktury GitOps dla repozytorium ${REPO_OWNER}/${REPO_NAME}"
+echo "🗂️ Namespace: ${NAMESPACE}"
+echo "📦 Docelowy obraz: ${IMAGE_REGISTRY_PATH}:${IMAGE_TAG}"
+
+# --- 2. Sprawdzenie MicroK8s ---
+if ! command -v microk8s &>/dev/null; then
+  echo "❌ MicroK8s nie znaleziono. Zainstaluj zanim użyjesz tego skryptu."
+  exit 1
+fi
+
+if ! microk8s status | grep -q "running"; then
+  echo "⚠️ MicroK8s nie działa — uruchamiam..."
+  sudo microk8s start
+  microk8s status --wait-ready --timeout 60 || { echo "❌ MicroK8s nie gotowe."; exit 1; }
+fi
+
+echo "✅ MicroK8s działa."
+echo "ℹ️  Włącz ręcznie ArgoCD:  microk8s enable argocd"
+
+# --- 3. Tworzenie struktury katalogów ---
 APP_DIR="${REPO_NAME}"
-
-echo -e "\n🚀 Inicjalizacja GitOps dla repozytorium: \e[36m${REPO_OWNER}/${REPO_NAME}\e[0m"
-echo "Używana przestrzeń nazw: ${NAMESPACE}"
-echo "Docelowy obraz GHCR: ${IMAGE_REGISTRY_PATH}:${IMAGE_TAG}"
-
-# === 2. SPRAWDZENIE MICROK8S ===
-check_microk8s() {
-    echo "🔍 Sprawdzanie MicroK8s..."
-    if ! command -v microk8s &>/dev/null; then
-        echo "❌ MicroK8s nie jest zainstalowany."; exit 1
-    fi
-    if ! microk8s status | grep -q "running"; then
-        echo "⚠️ Uruchamiam MicroK8s..."
-        sudo microk8s start
-        microk8s status --wait-ready --timeout 60 || {
-            echo "❌ MicroK8s nie uruchomiło się."; exit 1;
-        }
-    fi
-    echo "✅ MicroK8s działa."
-}
-check_microk8s
-
-echo "ℹ️ Upewnij się, że ArgoCD jest włączone: microk8s enable argocd"
-
-# === 3. STRUKTURA PROJEKTU ===
-echo "📂 Tworzę strukturę katalogów..."
 rm -rf "${APP_DIR}"
-mkdir -p "${APP_DIR}/src" \
-         "${APP_DIR}/manifests/base" \
-         "${APP_DIR}/manifests/production" \
-         "${APP_DIR}/manifests/argocd" \
-         "${APP_DIR}/.github/workflows"
+mkdir -p ${APP_DIR}/{src,manifests/{base,production,argocd},.github/workflows}
 
-# === 4. APLIKACJA GO ===
-echo "📝 Generowanie aplikacji Go..."
-cat > "${APP_DIR}/src/main.go" <<'EOF'
+# --- 4. Generowanie plików aplikacji ---
+echo "📝 Tworzenie pliku Go i Dockerfile..."
+
+cat <<'EOF_GO' > ${APP_DIR}/src/main.go
 package main
 
 import (
-	"fmt"
-	"log"
-	"net/http"
-	"os"
-	"time"
-
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+  "fmt"
+  "log"
+  "net/http"
 )
-
-const (
-	DB_HOST = "postgres-service"
-	DB_PORT = "5432"
-	DB_USER = "appuser"
-	DB_NAME = "davtrogrdb"
-)
-
-var (
-	httpRequestsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{Name: "http_requests_total", Help: "Liczba zapytań HTTP."},
-		[]string{"path", "method", "code"},
-	)
-	httpRequestDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{Name: "http_request_duration_seconds", Help: "Czas trwania zapytań HTTP."},
-		[]string{"path", "method"},
-	)
-)
-
-func init() {
-	prometheus.MustRegister(httpRequestsTotal)
-	prometheus.MustRegister(httpRequestDuration)
-}
 
 func main() {
-	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-	dbPassword := os.Getenv("DB_PASSWORD")
-	log.Printf("DB host=%s, user=%s, password_set=%t", DB_HOST, DB_USER, dbPassword != "")
-
-	http.HandleFunc("/", loggingMiddleware(homeHandler))
-	http.HandleFunc("/healthz", healthzHandler)
-	http.Handle("/metrics", promhttp.Handler())
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-	log.Printf("Serwer działa na porcie :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+  http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintln(w, "<h1>Witaj w aplikacji davtrogr!</h1><p>GitOps + ArgoCD + GitHub Actions</p>")
+  })
+  log.Println("Serwer działa na porcie :8080")
+  log.Fatal(http.ListenAndServe(":8080", nil))
 }
+EOF_GO
 
-func homeHandler(w http.ResponseWriter, r *http.Request) {
-	page := `
-	<h2>O Mnie</h2>
-	<p>Jestem entuzjastą DevOps, specjalizującym się w CI/CD, Kubernetes, GitOps i ArgoCD.</p>
-	<h2>Stack</h2>
-	<ul><li>GoLang</li><li>MicroK8s</li><li>ArgoCD</li><li>GitHub Actions</li></ul>
-	`
-	html := fmt.Sprintf(`
-	<html><head><title>dawtrogr Website</title></head>
-	<body style="font-family:Arial;background:#f7f7f7;padding:40px;">
-	<div style="max-width:800px;margin:auto;background:#fff;padding:20px;border-radius:10px;">
-	<h1>davtrogr Website (GitOps)</h1>%s
-	<p><b>Status:</b> OK</p></div></body></html>`, page)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(html))
-}
-
-type responseWriterWrapper struct {
-	http.ResponseWriter
-	statusCode int
-}
-func (lrw *responseWriterWrapper) WriteHeader(code int) {
-	lrw.statusCode = code
-	lrw.ResponseWriter.WriteHeader(code)
-}
-
-func loggingMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		lrw := &responseWriterWrapper{ResponseWriter: w, statusCode: 200}
-		start := time.Now()
-		next(lrw, r)
-		dur := time.Since(start).Seconds()
-		httpRequestsTotal.WithLabelValues(r.URL.Path, r.Method, fmt.Sprint(lrw.statusCode)).Inc()
-		httpRequestDuration.WithLabelValues(r.URL.Path, r.Method).Observe(dur)
-		log.Printf("%s %s -> %d (%.3fs)", r.Method, r.URL.Path, lrw.statusCode, dur)
-	}
-}
-
-func healthzHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("ok"))
-}
-EOF
-
-cat > "${APP_DIR}/go.mod" <<EOF
+cat <<EOF_MOD > ${APP_DIR}/go.mod
 module ${REPO_OWNER}/${REPO_NAME}
 go 1.21
-require github.com/prometheus/client_golang v1.17.0
-EOF
+EOF_MOD
 
-cat > "${APP_DIR}/Dockerfile" <<'EOF'
+cat <<'EOF_DOCKER' > ${APP_DIR}/Dockerfile
 FROM golang:1.21-alpine AS builder
 WORKDIR /app
-COPY go.mod go.sum ./
+COPY go.mod ./
 RUN go mod download
 COPY src/*.go ./
-RUN go build -o /davtrogr-website ./main.go
+RUN go build -o /app/app main.go
 
 FROM alpine:latest
-RUN apk --no-cache add ca-certificates
 WORKDIR /root/
-COPY --from=builder /davtrogr-website .
+COPY --from=builder /app/app .
 EXPOSE 8080
-CMD ["./davtrogr-website"]
-EOF
+CMD ["./app"]
+EOF_DOCKER
 
-# === 5. MANIFESTY K8S ===
-echo "🧩 Tworzę manifesty Kubernetes..."
-cat > "${APP_DIR}/manifests/base/deployment.yaml" <<EOF
+echo "✅ Pliki aplikacji wygenerowane."
+
+# --- 5. Manifesty Kustomize ---
+echo "📦 Tworzenie manifestów Kubernetes..."
+
+cat <<EOF_DEPLOY > ${APP_DIR}/manifests/base/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: davtrogr-website
-  labels:
-    app: davtrogr-website
+  name: website
+  labels: { app: website }
 spec:
   replicas: 1
-  selector:
-    matchLabels:
-      app: davtrogr-website
+  selector: { matchLabels: { app: website } }
   template:
-    metadata:
-      labels:
-        app: davtrogr-website
+    metadata: { labels: { app: website } }
     spec:
+      imagePullSecrets:
+      - name: regcred
       containers:
-        - name: davtrogr-website
-          image: ${IMAGE_REGISTRY_PATH}:${IMAGE_TAG}
-          ports:
-            - containerPort: 8080
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: 8080
-            initialDelaySeconds: 5
-            periodSeconds: 5
-EOF
+      - name: website
+        image: ${IMAGE_REGISTRY_PATH}:${IMAGE_TAG}
+        ports:
+        - containerPort: 8080
+EOF_DEPLOY
 
-cat > "${APP_DIR}/manifests/base/service.yaml" <<EOF
+cat <<EOF_SVC > ${APP_DIR}/manifests/base/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: davtrogr-website
+  name: website-service
 spec:
-  selector:
-    app: davtrogr-website
+  selector: { app: website }
   ports:
-    - protocol: TCP
-      port: 80
-      targetPort: 8080
-  type: ClusterIP
-EOF
+  - port: 80
+    targetPort: 8080
+EOF_SVC
 
-cat > "${APP_DIR}/manifests/base/kustomization.yaml" <<EOF
+cat <<EOF_KUSTOM > ${APP_DIR}/manifests/base/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
 resources:
-  - deployment.yaml
-  - service.yaml
-EOF
+- deployment.yaml
+- service.yaml
 
-mkdir -p "${APP_DIR}/manifests/production"
-cat > "${APP_DIR}/manifests/production/kustomization.yaml" <<EOF
-resources:
-  - ../base
+images:
+- name: ${IMAGE_REGISTRY_PATH}
+  newTag: ${IMAGE_TAG}
+EOF_KUSTOM
+
+cat <<EOF_NS > ${APP_DIR}/manifests/production/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${NAMESPACE}
+EOF_NS
+
+cat <<EOF_PROD_KUST > ${APP_DIR}/manifests/production/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
 namespace: ${NAMESPACE}
-EOF
+resources:
+- ../base
+- namespace.yaml
+EOF_PROD_KUST
 
-# === 6. ARGOCD APPLICATION ===
-cat > "${APP_DIR}/manifests/argocd/application.yaml" <<EOF
+# --- 6. ArgoCD Application ---
+cat <<EOF_ARGO > ${APP_DIR}/manifests/argocd/application.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: davtrogr-website
+  name: website
   namespace: argocd
 spec:
   project: default
   source:
-    repoURL: ${REPO_HTTPS_URL}
-    targetRevision: main
+    repoURL: https://github.com/${REPO_OWNER}/${REPO_NAME}.git
+    targetRevision: HEAD
     path: manifests/production
   destination:
     server: https://kubernetes.default.svc
@@ -245,30 +167,36 @@ spec:
     automated:
       prune: true
       selfHeal: true
-EOF
+    syncOptions:
+    - CreateNamespace=true
+EOF_ARGO
 
-cat > "${APP_DIR}/manifests/argocd/kustomization.yaml" <<EOF
-resources:
-  - application.yaml
-EOF
+# --- 7. GitHub Actions workflow ---
+cat <<'EOF_GHA' > ${APP_DIR}/.github/workflows/ci-cd.yaml
+name: Build and Deploy to GHCR
 
-# === 7. GITHUB ACTIONS ===
-echo "⚙️ Tworzę workflow GitHub Actions..."
-cat > "${APP_DIR}/.github/workflows/deploy.yaml" <<'EOF'
-name: Build and Deploy
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Dockerfile'
+      - 'go.mod'
+
 permissions:
   contents: write
   packages: write
+
+env:
+  IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+  KUSTOMIZE_PATH: manifests/production
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -277,37 +205,53 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and Push Docker Image
+      - name: Set image tag
+        id: tag
+        run: echo "TAG=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_REPOSITORY }}:${{ steps.tag.outputs.TAG }}
+            ${{ env.IMAGE_REPOSITORY }}:latest
+
+      - name: Update Kustomize image tag
         run: |
-          IMAGE="ghcr.io/${{ github.repository }}:$(git rev-parse --short HEAD)"
-          docker build -t "$IMAGE" .
-          docker push "$IMAGE"
-          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+          kustomize edit set image ${{ env.IMAGE_REPOSITORY }}=${{ env.IMAGE_REPOSITORY }}:${{ steps.tag.outputs.TAG }} --kustomization ${{ env.KUSTOMIZE_PATH }}
+          cat ${{ env.KUSTOMIZE_PATH }}/kustomization.yaml
 
-      - name: Update Kustomize Image
-        run: |
-          cd manifests/production
-          kustomize edit set image ghcr.io/${{ github.repository }}=${IMAGE}
-          cd ../..
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add manifests/production/kustomization.yaml
-          git commit -m "Update image to ${IMAGE}"
-          git push
-EOF
+      - name: Commit and push changes
+        uses: EndBug/add-and-commit@v9
+        with:
+          author_name: github-actions[bot]
+          author_email: 41898282+github-actions[bot]@users.noreply.github.com
+          message: "Update image tag to ${{ steps.tag.outputs.TAG }}"
+          add: '${{ env.KUSTOMIZE_PATH }}/kustomization.yaml'
+EOF_GHA
 
-# === 8. GIT INIT + PUSH ===
-echo "📤 Inicjalizacja Gita i wysyłka na GitHub..."
-cd "${APP_DIR}"
-git init
-git branch -m main
-git add .
-git commit -m "Initial GitOps project setup"
-git remote add origin "${REPO_HTTPS_URL}"
-git push -u origin main
+# --- 8. Wdrożenie Application ---
+microk8s kubectl apply -k ${APP_DIR}/manifests/argocd
 
-# === 9. DEPLOY ARGOCD ===
-echo "💾 Deploy ArgoCD Application..."
-microk8s kubectl apply -k manifests/argocd --validate=false || true
-echo "✅ ArgoCD Application utworzony."
-echo -e "\n🎉 Skrypt zakończony pomyślnie! Projekt wypchnięty i gotowy do GitOps 🚀"
+echo "✅ Struktura repozytorium stworzona w katalogu ${APP_DIR}"
+echo ""
+echo "📌 Kolejne kroki:"
+echo "1️⃣  Utwórz sekret do GHCR:"
+echo "    microk8s kubectl create secret docker-registry regcred \\"
+echo "      --docker-server=https://ghcr.io \\"
+echo "      --docker-username=${REPO_OWNER} \\"
+echo "      --docker-password='<TWÓJ_PAT>' -n ${NAMESPACE}"
+echo ""
+echo "2️⃣  Zainicjuj repozytorium i zrób push:"
+echo "    cd ${APP_DIR}"
+echo "    git init && git add . && git commit -m 'Initial commit'"
+echo "    git remote add origin https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
+echo "    git branch -M main && git push -u origin main"
+echo ""
+echo "3️⃣  Upewnij się w GitHub Settings → Actions → General → Workflow permissions = Read and write."
+echo ""
+echo "🚀  Gotowe! Po pushu GitHub Actions zbuduje obraz i ArgoCD wdroży go automatycznie w MicroK8s."

@@ -1,27 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: davtrogr-website
-  labels:
-    app: davtrogr-website
+  name: website
+  labels: { app: website }
 spec:
   replicas: 1
-  selector:
-    matchLabels:
-      app: davtrogr-website
+  selector: { matchLabels: { app: website } }
   template:
-    metadata:
-      labels:
-        app: davtrogr-website
+    metadata: { labels: { app: website } }
     spec:
+      imagePullSecrets:
+      - name: regcred
       containers:
-        - name: davtrogr-website
-          image: ghcr.io/exea-centrum/website-argocd-k8s-githubactions-kustomize-kyverno04:latest
-          ports:
-            - containerPort: 8080
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: 8080
-            initialDelaySeconds: 5
-            periodSeconds: 5
+      - name: website
+        image: ghcr.io/exea-centrum/website-argocd-k8s-githubactions-kustomize-kyverno04:latest
+        ports:
+        - containerPort: 8080
