@@ -9,9 +9,9 @@ WORKDIR /app
 COPY src/*.go ./
 
 # Jeśli brak go.mod, utwórz go dynamicznie
-RUN if [ ! -f go.mod ]; then go mod init example.com/app; fi
+RUN if [ ! -f go.mod ]; then go mod init exea-centrum/website-argocd-k8s-githubactions-kustomize-kyverno04; fi
 
-# Dodaj zależności Prometheusa i zapisz go.sum
+# Dodaj zależności Prometheusa i wygeneruj go.sum
 RUN go get github.com/prometheus/client_golang/prometheus \
     && go get github.com/prometheus/client_golang/prometheus/promhttp \
     && go mod tidy
@@ -26,8 +26,6 @@ FROM alpine:latest
 
 WORKDIR /root/
 COPY --from=builder /app/app .
-
-
 
 EXPOSE 8080
 CMD ["./app"]
