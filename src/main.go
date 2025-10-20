@@ -36,8 +36,8 @@ var (
 <ul>
     <li><strong>Język Backend:</strong> GoLang (z metrykami Prometheus)</li>
     <li><strong>Orkiestracja:</strong> MicroK8s</li>
-    <li><strong>Wdrożenie GitOps:</strong> ArgoCD & Kaniko (budowanie obrazu w klastrze)</li>
-    <li><strong>CI/CD:</strong> Kube Native (Kaniko Job)</li>
+    <li><strong>Wdrożenie GitOps:</strong> ArgoCD (Synchronizacja) & GitHub Actions (Budowanie)</li>
+    <li><strong>CI/CD:</strong> GitHub Actions (Build & Push do GHCR)</li>
     <li><strong>Baza Danych:</strong> PostgreSQL (w osobnym Deployment)</li>
 </ul>`
 )
@@ -112,7 +112,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
   w.Write([]byte(htmlContent))
 }
 
-# --- Funkcje pomocnicze do monitoringu (Logging Middleware, Healthz, Wrapper) ---
+// --- Funkcje pomocnicze do monitoringu (Logging Middleware, Healthz, Wrapper) ---
 type responseWriterWrapper struct { http.ResponseWriter; statusCode int }
 func (lrw *responseWriterWrapper) WriteHeader(code int) { lrw.statusCode = code; lrw.ResponseWriter.WriteHeader(code) }
 func loggingMiddleware(next http.HandlerFunc) http.HandlerFunc {

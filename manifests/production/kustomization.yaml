@@ -8,19 +8,4 @@ resources:
 - ingress.yaml
 - servicemonitor.yaml
 
-# Adnotacje dla Kaniko Job:
-# 1. Sync Wave -1 (wykonaj Job przed Deploymentem)
-# 2. Hook do usunięcia Job'a po sukcesie (w ArgoCD)
-patches:
-- patch: |-
-    - op: add
-      path: /metadata/annotations
-      value:
-        argocd.argoproj.io/sync-wave: "-1"
-        argocd.argoproj.io/hook: PostSync
-        argocd.argoproj.io/hook-delete-policy: HookSucceeded
-  target:
-    kind: Job
-    name: kaniko-image-build
-
 namePrefix:

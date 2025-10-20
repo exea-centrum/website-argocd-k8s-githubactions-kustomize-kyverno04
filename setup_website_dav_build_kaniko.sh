@@ -1,26 +1,28 @@
 #!/bin/bash
 
 # ====================================================================
-# Skrypt inicjalizacyjny GitOps dla davtrogr Website (CI/CD + ArgoCD)
-# - GitHub Actions: Buduje obraz Docker, pushuje do GHCR i aktualizuje tag w Kustomize.
-# - ArgoCD: Synchronizuje zaktualizowane manifesty z repozytorium GitHub i wdraża na MicroK8s.
-# - Skrypt LOKALNY: Generuje strukturę plików, NIE BUDUJE LOKALNIE.
+# Skrypt inicjalizacyjny GitOps dla davtrogr Website (ArgoCD + Kaniko Build)
+# - KANIKO: Używany do budowania obrazu DOCKER wewnątrz klastra K8s (poprzez Job).
+# - ArgoCD: Synchronizuje Job Kaniko oraz Deploymenty.
+# - Wymaga: Zainstalowanego MicroK8s z dodatkiem ArgoCD.
 # ====================================================================
 
 set -e # Przerwij w przypadku błędu
 
 # --- 1. Konfiguracja i zmienne ---
-# ZMIEŃ REPO_OWNER NA TWOJĄ NAZWĘ UŻYTKOWNIKA/ORGANIZACJI NA GITHUB!
+# Zmień REPO_OWNER na Twoją nazwę użytkownika/organizacji na GitHub!
 REPO_OWNER="exea-centrum" 
 REPO_NAME="website-argocd-k8s-githubactions-kustomize-kyverno04"
 NAMESPACE="davtrogr"
 
+# Pamiętaj: Kaniko musi gdzieś PUSHOWAĆ obraz, aby Deployment mógł go pobrać.
+# Upewnij się, że ten obraz jest dostępny na GHCR.
 IMAGE_REGISTRY_PATH="ghcr.io/${REPO_OWNER}/${REPO_NAME}"
-IMAGE_TAG="latest" # Domyślny tag
+IMAGE_TAG="latest" # Kaniko zawsze nadpisuje ten tag po pomyślnym zbudowaniu
 
-echo "🚀 Rozpoczynam LOKALNE tworzenie struktury GitOps dla repozytorium na GitHub (CI/CD + ArgoCD)..."
+echo "🚀 Rozpoczynam LOKALNE tworzenie struktury GitOps dla repozytorium na GitHub (Kaniko Build)..."
 echo "Używana przestrzeń nazw: ${NAMESPACE}"
-echo "Docelowy obraz GHCR: ${IMAGE_REGISTRY_PATH}:${IMAGE_TAG}"
+echo "Docelowy obraz GHCR (zmień właściciela!): ${IMAGE_REGISTRY_PATH}:${IMAGE_TAG}"
 
 # --- 2. Funkcje pomocnicze ---
 check_microk8s() {
@@ -51,10 +53,10 @@ mkdir -p ${APP_DIR}/src \
          ${APP_DIR}/manifests/base \
          ${APP_DIR}/manifests/production \
          ${APP_DIR}/manifests/argocd \
-         ${APP_DIR}/.github/workflows
+         ${APP_DIR}/.github/workflows # Zostawiam dla przyszłych rozszerzeń
 
-# --- 5. Generowanie plików aplikacji Go z danymi ---
-echo "📝 Generowanie aplikacji Go (src/main.go) i Dockerfile..."
+# --- 5. Generowanie plików aplikacji Go z danymi (BEZ ZMIAN W TREŚCI) ---
+echo "📝 Generowanie aplikacji Go (src/main.go) z danymi davtrogr Website..."
 # --- Dane symulujące zawartość strony Dawida Trojanowskiego ---
 MOCKED_CONTENT=$(cat <<'EOF_DATA'
 <h2>O Mnie</h2>
@@ -63,8 +65,8 @@ MOCKED_CONTENT=$(cat <<'EOF_DATA'
 <ul>
     <li><strong>Język Backend:</strong> GoLang (z metrykami Prometheus)</li>
     <li><strong>Orkiestracja:</strong> MicroK8s</li>
-    <li><strong>Wdrożenie GitOps:</strong> ArgoCD (Synchronizacja) & GitHub Actions (Budowanie)</li>
-    <li><strong>CI/CD:</strong> GitHub Actions (Build & Push do GHCR)</li>
+    <li><strong>Wdrożenie GitOps:</strong> ArgoCD & Kaniko (budowanie obrazu w klastrze)</li>
+    <li><strong>CI/CD:</strong> Kube Native (Kaniko Job)</li>
     <li><strong>Baza Danych:</strong> PostgreSQL (w osobnym Deployment)</li>
 </ul>
 EOF_DATA
@@ -177,7 +179,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
   w.Write([]byte(htmlContent))
 }
 
-// --- Funkcje pomocnicze do monitoringu (Logging Middleware, Healthz, Wrapper) ---
+# --- Funkcje pomocnicze do monitoringu (Logging Middleware, Healthz, Wrapper) ---
 type responseWriterWrapper struct { http.ResponseWriter; statusCode int }
 func (lrw *responseWriterWrapper) WriteHeader(code int) { lrw.statusCode = code; lrw.ResponseWriter.WriteHeader(code) }
 func loggingMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -227,8 +229,68 @@ CMD ["./davtrogr-website"]
 EOF_DOCKER
 echo "✅ Aplikacja Go i pliki budowania wygenerowane."
 
-# --- 6. Generowanie Manifestów Kustomize (Standardowe Wdrożenie) ---
-echo "📝 Generowanie manifestów Kustomize (Standardowe Wdrożenie)..."
+# --- 6. Generowanie Manifestów Kustomize (Kaniko Job i Deployment) ---
+echo "📝 Generowanie manifestów Kustomize (Kaniko Build Integration)..."
+
+# Nowy plik Job Kaniko w /base
+cat <<EOF_KANIKO_JOB > ${APP_DIR}/manifests/base/kaniko-build-job.yaml
+# UWAGA: Ten Job musi być uruchamiany RĘCZNIE lub przez zaawansowany wzorzec w ArgoCD
+# (np. ApplicationSet z generatorami). Tutaj generujemy go jako zwykły Job do celów
+# demonstracyjnych, który może być synchronizowany i uruchamiany przez ArgoCD.
+#
+# Wymaga sekretu 'regcred' (Docker Registry Credentials) w tej samej przestrzeni nazw!
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kaniko-image-build
+  labels: { app: davtrogr-website-build }
+spec:
+  template:
+    spec:
+      # Kaniko wymaga uprawnień roota (securityContext)
+      serviceAccountName: default 
+      restartPolicy: OnFailure
+      containers:
+      - name: kaniko
+        image: gcr.io/kaniko-project/executor:latest
+        args:
+        - "--context=git://github.com/${REPO_OWNER}/${REPO_NAME}.git#${IMAGE_TAG}" # Używa brancha 'latest' lub 'HEAD'
+        - "--destination=${IMAGE_REGISTRY_PATH}:${IMAGE_TAG}"
+        - "--dockerfile=Dockerfile"
+        # Argumenty Kaniko dla uwierzytelnienia (używamy kubelet's credentials)
+        - "--cache=true"
+        - "--single-snapshot"
+        env:
+        # Ten sekret musi istnieć! Użyje go Kaniko do pushowania.
+        - name: DOCKER_CONFIG
+          value: /kaniko/.docker
+        volumeMounts:
+        - name: docker-config
+          mountPath: /kaniko/.docker
+      volumes:
+      - name: docker-config
+        projected:
+          sources:
+          - secret:
+              name: regcred # Standardowa nazwa sekreta dla pobierania obrazów, musi zawierać dane logowania do GHCR!
+              items:
+                - key: .dockerconfigjson
+                  path: config.json
+
+  # Ogranicznik, aby Job nie działał wiecznie
+  backoffLimit: 3
+EOF_KANIKO_JOB
+
+
+# Wymagany Service Account dla Kaniko (potrzebuje uprawnień do tworzenia secret'ów lub wdrożenia)
+cat <<EOF_SA > ${APP_DIR}/manifests/base/kaniko-sa.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kaniko-builder-sa
+  labels: { app: davtrogr-website-build }
+EOF_SA
 
 # Manifesty PostgreSQL (bez zmian)
 cat <<EOF_PG_DEP > ${APP_DIR}/manifests/base/postgres-deployment.yaml
@@ -276,7 +338,7 @@ spec:
     targetPort: 5432
 EOF_PG_SVC
 
-# Deployment z placeholderem do nadpisania przez GitHub Actions
+# Zmieniony Deployment - Używa obrazu z GHCR (zbudowanego przez Kaniko)
 cat <<EOF_WEB_DEP > ${APP_DIR}/manifests/base/website-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -290,13 +352,14 @@ spec:
   template:
     metadata: { labels: { app: davtrogr-website-app } }
     spec:
+      # ServiceAccount Name potrzebne do pobrania obrazu z GHCR,
+      # jeśli regcred jest dołączony do tego SA.
       serviceAccountName: default 
       imagePullSecrets:
       - name: regcred # Wymagany do pobierania z GHCR
       containers:
       - name: davtrogr-website-container
-        # Placeholder obrazu, który zostanie zaktualizowany przez GitHub Actions
-        image: ${IMAGE_REGISTRY_PATH}:latest 
+        image: ${IMAGE_REGISTRY_PATH}:${IMAGE_TAG} # Używa obrazu zbudowanego przez Kaniko!
         ports:
         - containerPort: 8080
         resources: { limits: { memory: "128Mi", cpu: "500m" } }
@@ -325,12 +388,13 @@ spec:
     name: http
 EOF_WEB_SVC
 
-# Kustomization Base z definicją images do nadpisania
 cat <<EOF_K_BASE > ${APP_DIR}/manifests/base/kustomization.yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
+- kaniko-build-job.yaml # Dodano Job Kaniko
+- kaniko-sa.yaml        # Dodano Service Account (opcjonalnie)
 - postgres-deployment.yaml
 - postgres-service.yaml
 - website-deployment.yaml
@@ -340,13 +404,12 @@ secretGenerator:
 - name: postgres-secret
   literals:
   - password=bardzotajnehaslo123 
-
-# Definicja obrazu, która zostanie nadpisana przez GitHub Actions
-images:
-- name: ${IMAGE_REGISTRY_PATH}
-  newTag: latest # Tag zostanie zaktualizowany przez CI/CD
+  
+# UWAGA: Kaniko Job musi być usunięty przed wdrożeniem, ponieważ nie jest
+# komponentem trwałym. Dodamy tu adnotację ArgoCD do pominięcia.
+# W kustomization.yaml Production dodamy adnotację:
+# argocd.argoproj.io/sync-wave: "-1" dla Job'a, aby wykonał się pierwszy.
 EOF_K_BASE
-
 
 # Manifesty Production (Ingress, ServiceMonitor)
 cat <<EOF_NS > ${APP_DIR}/manifests/production/namespace.yaml
@@ -392,7 +455,7 @@ spec:
     interval: 30s
 EOF_SM
 
-# Główny Kustomization Production - bez patchy
+# Główny Kustomization Production - Nadpisanie Deploymentów i dodanie adnotacji SyncWave
 cat <<EOF_K_PROD > ${APP_DIR}/manifests/production/kustomization.yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -404,26 +467,41 @@ resources:
 - ingress.yaml
 - servicemonitor.yaml
 
+# Adnotacje dla Kaniko Job:
+# 1. Sync Wave -1 (wykonaj Job przed Deploymentem)
+# 2. Hook do usunięcia Job'a po sukcesie (w ArgoCD)
+patches:
+- patch: |-
+    - op: add
+      path: /metadata/annotations
+      value:
+        argocd.argoproj.io/sync-wave: "-1"
+        argocd.argoproj.io/hook: PostSync
+        argocd.argoproj.io/hook-delete-policy: HookSucceeded
+  target:
+    kind: Job
+    name: kaniko-image-build
+
 namePrefix:
 EOF_K_PROD
-echo "✅ Manifesty Kustomize (standard) wygenerowane."
+echo "✅ Manifesty Kustomize (z Kaniko Job) wygenerowane."
 
 # --- 7. Generowanie pliku definicji ArgoCD Application ---
 REPO_HTTPS_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
 
-# Zmieniona definicja: Usunięto pole finalizers
 cat <<EOF_ARGO_APP > ${APP_DIR}/manifests/argocd/davtrogr-app.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: davtrogr-website
   namespace: argocd 
+  finalizers: ["resources-finalizer.argocd.argoproj.io"]
 spec:
   project: default
   source:
-    repoURL: ${REPO_HTTPS_URL}
+    repoURL: ${REPO_HTTPS_URL} # Pamiętaj o zmianie właściciela na Twój!
     targetRevision: HEAD
-    path: manifests/production
+    path: manifests/production # Ścieżka do głównego kustomization.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: ${NAMESPACE}
@@ -431,9 +509,17 @@ spec:
     automated:
       prune: true
       selfHeal: true
+    # Kaniko potrzebuje tego, aby ArgoCD wiedziało, że Deployment
+    # może być niedostępny (np. obraz jeszcze nie istnieje)
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
     syncOptions:
       - CreateNamespace=true
-      - ServerSideApply=true
+      - ServerSideApply=true # Użyteczne dla kustomize i patches
 EOF_ARGO_APP
 
 cat <<EOF_K_ARGO > ${APP_DIR}/manifests/argocd/kustomization.yaml
@@ -442,99 +528,11 @@ kind: Kustomization
 resources:
 - davtrogr-app.yaml
 EOF_K_ARGO
-echo "✅ Manifest ArgoCD Application wygenerowany (bez finalizers). Wskaże na repo: ${REPO_HTTPS_URL}"
+echo "✅ Manifest ArgoCD Application wygenerowany. Wskaże na repo: ${REPO_HTTPS_URL}"
 
-
-# --- 8. Tworzenie pliku GitHub Actions (CI/CD) ---
-# Plik ci-cd.yaml jest tworzony na podstawie aktualnego pliku w immersive.
-cat <<EOF_CI_CD > ${APP_DIR}/.github/workflows/ci-cd.yaml
-name: CI/CD Build & Deploy (GitHub Actions)
-
-on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'src/**'
-      - 'Dockerfile'
-      - 'go.mod'
-
-# Uprawnienia kluczowe do pushowania do GHCR (packages: write)
-# oraz do commitowania zmian w plikach Kustomize (contents: write)
-permissions:
-  contents: write 
-  packages: write 
-  
-env:
-  # Pełna ścieżka do obrazu (np. ghcr.io/exea-centrum/repo-name)
-  IMAGE_REPOSITORY: ghcr.io/\${{ github.repository }}
-  # Ścieżka do katalogu Kustomize, który zawiera kustomization.yaml do edycji
-  KUSTOMIZE_PATH: manifests/production
-  # Stała nazwa obrazu, której szuka Kustomize do nadpisania
-  KUSTOMIZE_IMAGE_NAME: ${IMAGE_REGISTRY_PATH} 
-  # Stały tag 'latest'
-  STABLE_TAG: latest
-
-jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-      
-      # Logowanie do GitHub Container Registry
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: \${{ github.actor }}
-          password: \${{ secrets.GITHUB_TOKEN }}
-          
-      # Ustalanie TAGu na podstawie SHA commitu (pierwsze 7 znaków)
-      - name: Set Image Tag
-        id: set_tag
-        run: echo "TAG=\$(echo \${{ github.sha }} | head -c 7)" >> \$GITHUB_OUTPUT
-
-      # Budowanie i push obrazu
-      - name: Build and Push Docker Image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          # Tagujemy dwoma tagami: commit-sha i latest
-          tags: |
-            \${{ env.IMAGE_REPOSITORY }}:\${{ steps.set_tag.outputs.TAG }}
-            \${{ env.IMAGE_REPOSITORY }}:\${{ env.STABLE_TAG }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          
-      # Aktualizacja taga w pliku Kustomize (dla ArgoCD)
-      - name: Update Image Tag in Kustomize
-        id: kustomize_update
-        # Instalacja kustomize
-        run: |
-          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"  | bash
-          sudo mv kustomize /usr/local/bin/
-          
-          # Aktualizujemy obraz w głównym pliku kustomization.yaml (production)
-          kustomize edit set image \\
-            \${{ env.KUSTOMIZE_IMAGE_NAME }}:\${{ env.STABLE_TAG }}=\\
-            \${{ env.IMAGE_REPOSITORY }}:\${{ steps.set_tag.outputs.TAG }} \\
-            --kustomization \${{ env.KUSTOMIZE_PATH }}
-            
-          cat \${{ env.KUSTOMIZE_PATH }}/kustomization.yaml # Weryfikacja
-
-      # Commit i Push zaktualizowanego pliku Kustomize
-      - name: Commit and Push Kustomize Update
-        uses: EndBug/add-and-commit@v9
-        with:
-          author_name: github-actions[bot]
-          author_email: 41898282+github-actions[bot]@users.noreply.github.com
-          message: "GitOps: Update image tag to \${{ steps.set_tag.outputs.TAG }}"
-          add: '\${{ env.KUSTOMIZE_PATH }}/kustomization.yaml'
-EOF_CI_CD
-echo "✅ Plik GitHub Actions (CI/CD) wygenerowany."
-
+# --- 8. Usunięcie niepotrzebnego pliku GitHub Actions ---
+rm -rf ${APP_DIR}/.github/workflows/ci-cd.yaml
+echo "🗑️ Usunięto plik GitHub Actions (budowanie przeniesione do Kaniko)."
 
 # --- 9. Wdrożenie Application ArgoCD ---
 echo "💾 Wdrożenie pliku ArgoCD Application na MicroK8s..."
@@ -543,27 +541,28 @@ echo "✅ Definicja ArgoCD Application wdrożona."
 
 # --- 10. Instrukcje końcowe ---
 echo "================================================================"
-echo "                   Proces Inicjalizacji GitOps (CI/CD + ArgoCD) Zakończony!"
+echo "                   Proces Inicjalizacji GitOps (Kaniko) Zakończony!"
 echo "================================================================="
 echo "!!! KROK 1: KRYTYCZNE! Utwórz Secret 'regcred' (dla GHCR) w przestrzeni nazw ${NAMESPACE}."
-echo "   Deployment potrzebuje tego sekreta do pobrania obrazu z GHCR."
+echo "   Kaniko (budowanie) i Deployment (pobieranie) potrzebują tego sekreta."
 echo "   Sekret MUSI zawierać dane logowania do GHCR (GitHub Container Registry)."
+echo "   Przykładowo, użyj tokenu PAT (Personal Access Token) z uprawnieniami 'write:packages'."
 echo "   Komenda: microk8s kubectl create secret docker-registry regcred \\"
 echo "     --docker-server=https://ghcr.io \\"
 echo "     --docker-username=${REPO_OWNER} \\"
 echo "     --docker-password='<Twój_PAT_Token>' -n ${NAMESPACE}"
-echo "   UWAGA: Token PAT musi mieć uprawnienie 'read:packages'!"
 echo ""
 echo "!!! KROK 2: Utwórz repozytorium na GitHub i wyślij pliki:"
 echo "   cd ${APP_DIR}"
 echo "   git init"
 echo "   git add ."
-echo "   git commit -m 'Initial commit of CI/CD GitOps structure'"
+echo "   git commit -m 'Initial commit of Kaniko GitOps structure'"
 echo "   git remote add origin https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
 echo "   git push -u origin main"
 echo ""
-echo "!!! KROK 3: W GitHub, w sekcji Settings -> Actions -> General -> Workflow Permissions, upewnij się, że 'Read and write permissions' jest włączone."
-echo "   Jest to krytyczne, aby GitHub Actions mógł zacommitować zaktualizowany plik kustomization.yaml z nowym tagiem obrazu."
+echo "!!! KROK 3: Upewnij się, że ArgoCD jest włączone i sprawdź status:"
+echo "   microk8s enable argocd"
+echo "   microk8s kubectl get app -n argocd"
 echo ""
-echo "➡️  Przepływ: PUSH -> GitHub Action buduje i pushuje do GHCR -> GitHub Action aktualizuje tag w Kustomize -> ArgoCD widzi zmianę i synchronizuje Deployment."
+echo "➡️  ArgoCD najpierw uruchomi Job Kaniko (Sync Wave -1), który zbuduje i zepchnie obraz do GHCR, a następnie wdroży Deployment (Sync Wave 0), który pobierze ten obraz."
 echo "================================================================"

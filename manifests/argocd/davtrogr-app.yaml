@@ -2,13 +2,13 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: davtrogr-website
-  namespace: argocd
+  namespace: argocd 
 spec:
   project: default
   source:
-    repoURL: https://github.com/exea-centrum/website-argocd-k8s-githubactions-kustomize-kyverno04.git # Pamiętaj o zmianie właściciela na Twój!
+    repoURL: https://github.com/exea-centrum/website-argocd-k8s-githubactions-kustomize-kyverno04.git
     targetRevision: HEAD
-    path: manifests/production # Ścieżka do głównego kustomization.yaml
+    path: manifests/production
   destination:
     server: https://kubernetes.default.svc
     namespace: davtrogr
@@ -16,14 +16,6 @@ spec:
     automated:
       prune: true
       selfHeal: true
-    # Kaniko potrzebuje tego, aby ArgoCD wiedziało, że Deployment
-    # może być niedostępny (np. obraz jeszcze nie istnieje)
-    retry:
-      limit: 5
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m
     syncOptions:
       - CreateNamespace=true
-      - ServerSideApply=true # Użyteczne dla kustomize i patches
+      - ServerSideApply=true
