@@ -228,7 +228,7 @@ EOF_SUM
 cat <<EOF_DOCKER > ${APP_DIR}/Dockerfile
 FROM golang:1.21-alpine AS builder
 WORKDIR /app
-COPY go.mod go.sum ./
+COPY go.mod ./ # Zmienione z COPY go.mod go.sum ./
 RUN go mod download
 COPY src/*.go ./
 RUN go build -o /davtrogr-website ./main.go
@@ -244,9 +244,7 @@ EOF_DOCKER
 echo "✅ Aplikacja Go, pliki budowania i go.sum wygenerowane."
 
 # --- 6. Generowanie Manifestów Kustomize (Standardowe Wdrożenie) ---
-echo "📝 Generowanie manifestów Kustomize (Standardowe Wdrożenie)..."
-
-# Manifesty PostgreSQL (bez zmian)
+# ... (reszta manifestów bez zmian)
 cat <<EOF_PG_DEP > ${APP_DIR}/manifests/base/postgres-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
