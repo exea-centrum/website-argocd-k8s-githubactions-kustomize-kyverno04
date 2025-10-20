@@ -1,78 +1,63 @@
 #!/bin/bash
 set -e
 
-# ========================================
-#  DAVTROGR Website - Full GitOps Init
-# ========================================
+echo "🚀 [1/10] Tworzenie struktury katalogów..."
+mkdir -p src manifests/base manifests/production .github/workflows
 
-REPO_OWNER="exea-centrum"
-REPO_NAME="website-argocd-k8s-githubactions-kustomize-kyverno04"
-IMAGE_REGISTRY="ghcr.io/${REPO_OWNER}/${REPO_NAME}"
-NAMESPACE="production"
-APP_DIR="${REPO_NAME}"
-
-echo "🚀 Tworzenie kompletnego środowiska GitOps (${APP_DIR})"
-
-# ========================================
-# 1️⃣ Struktura katalogów
-# ========================================
-rm -rf "${APP_DIR}"
-mkdir -p "${APP_DIR}"/{src,manifests/{base,production},.github/workflows}
-
-# ========================================
-# 2️⃣ Aplikacja Go (z metrykami Prometheus)
-# ========================================
-cat <<'EOF' > ${APP_DIR}/src/main.go
+# --- Aplikacja Go ---
+echo "🦦 [2/10] Generowanie aplikacji Go z metrykami Prometheus..."
+cat <<'EOF' > src/main.go
 package main
 
 import (
-	"fmt"
-	"log"
-	"net/http"
-	"time"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+    "fmt"
+    "net/http"
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
-	httpRequests = prometheus.NewCounterVec(
-		prometheus.CounterOpts{Name: "http_requests_total", Help: "Liczba zapytań HTTP"},
-		[]string{"path", "method"},
-	)
+    httpRequests = prometheus.NewCounter(prometheus.CounterOpts{
+        Name: "http_requests_total",
+        Help: "Liczba wszystkich żądań HTTP",
+    })
 )
 
-func init() {
-	prometheus.MustRegister(httpRequests)
-}
-
 func main() {
-	http.HandleFunc("/", handler)
-	http.Handle("/metrics", promhttp.Handler())
-	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
-	})
-	log.Println("🌍 Start serwera na :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
-}
+    prometheus.MustRegister(httpRequests)
+    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        httpRequests.Inc()
+        fmt.Fprintf(w, "Hello ArgoCD + GitHub Actions + Kustomize + Kyverno!")
+    })
+    http.Handle("/metrics", promhttp.Handler())
 
-func handler(w http.ResponseWriter, r *http.Request) {
-	httpRequests.WithLabelValues(r.URL.Path, r.Method).Inc()
-	t := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Fprintf(w, "<h1>davtrogr Website</h1><p>Serwer działa: %s</p>", t)
+    fmt.Println("Serwer działa na porcie :8080")
+    http.ListenAndServe(":8080", nil)
 }
 EOF
 
-cat <<EOF > ${APP_DIR}/go.mod
-module ${REPO_OWNER}/${REPO_NAME}
+echo "🧠 [3/10] Inicjalizacja modułu Go i zależności..."
+cat <<EOF > go.mod
+module example.com/app
+
 go 1.21
-require github.com/prometheus/client_golang v1.17.0
+
+require (
+    github.com/prometheus/client_golang v1.18.0
+)
 EOF
 
-cat <<EOF > ${APP_DIR}/Dockerfile
+cd src
+go mod tidy
+cd ..
+
+# --- Dockerfile ---
+echo "🐳 [4/10] Tworzenie Dockerfile..."
+cat <<'EOF' > Dockerfile
 FROM golang:1.21-alpine AS builder
 WORKDIR /app
-COPY go.mod ./
-RUN go mod download
+COPY go.mod go.sum ./
+RUN go mod tidy && go mod download
 COPY src/*.go ./
 RUN go build -o app
 
@@ -83,85 +68,58 @@ EXPOSE 8080
 CMD ["./app"]
 EOF
 
-# ========================================
-# 3️⃣ Manifesty base (App + PostgreSQL)
-# ========================================
-cat <<EOF > ${APP_DIR}/manifests/base/kustomization.yaml
-resources:
-  - deployment-app.yaml
-  - service-app.yaml
-  - deployment-postgres.yaml
-  - service-postgres.yaml
-  - secret-postgres.yaml
-EOF
-
-# Deployment aplikacji
-cat <<EOF > ${APP_DIR}/manifests/base/deployment-app.yaml
+# --- PostgreSQL + Base Kustomize ---
+echo "🧩 [5/10] Tworzenie manifestów Kustomize base..."
+cat <<EOF > manifests/base/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: website
-  labels:
-    app: website
+  name: go-app
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
-      app: website
+      app: go-app
   template:
     metadata:
       labels:
-        app: website
+        app: go-app
     spec:
       containers:
-        - name: website
-          image: ${IMAGE_REGISTRY}:latest
-          ports:
-            - containerPort: 8080
-          env:
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: postgres-secret
-                  key: DATABASE_URL
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 8080
-            initialDelaySeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: 8080
-            initialDelaySeconds: 5
+      - name: go-app
+        image: ghcr.io/USERNAME/APPNAME:latest
+        ports:
+        - containerPort: 8080
 EOF
 
-# Service aplikacji
-cat <<EOF > ${APP_DIR}/manifests/base/service-app.yaml
+cat <<EOF > manifests/base/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: website
-  labels:
-    app: website
+  name: go-app
 spec:
+  type: ClusterIP
   selector:
-    app: website
+    app: go-app
   ports:
-    - port: 80
-      targetPort: 8080
+  - port: 80
+    targetPort: 8080
 EOF
 
-# PostgreSQL Deployment
-cat <<EOF > ${APP_DIR}/manifests/base/deployment-postgres.yaml
+cat <<EOF > manifests/base/postgres.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+type: Opaque
+data:
+  POSTGRES_PASSWORD: cG9zdGdyZXM=  # base64: postgres
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: postgres
-  labels:
-    app: postgres
 spec:
-  replicas: 1
   selector:
     matchLabels:
       app: postgres
@@ -171,204 +129,150 @@ spec:
         app: postgres
     spec:
       containers:
-        - name: postgres
-          image: postgres:15
-          ports:
-            - containerPort: 5432
-          env:
-            - name: POSTGRES_DB
-              value: appdb
-            - name: POSTGRES_USER
-              value: appuser
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: postgres-secret
-                  key: POSTGRES_PASSWORD
-          volumeMounts:
-            - name: pgdata
-              mountPath: /var/lib/postgresql/data
-      volumes:
-        - name: pgdata
-          emptyDir: {}
-EOF
-
-# PostgreSQL Service
-cat <<EOF > ${APP_DIR}/manifests/base/service-postgres.yaml
+      - name: postgres
+        image: postgres:15
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+        ports:
+        - containerPort: 5432
+---
 apiVersion: v1
 kind: Service
 metadata:
   name: postgres
 spec:
-  ports:
-    - port: 5432
-      targetPort: 5432
+  type: ClusterIP
   selector:
     app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
 EOF
 
-# Secret PostgreSQL
-cat <<EOF > ${APP_DIR}/manifests/base/secret-postgres.yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: postgres-secret
-type: Opaque
-stringData:
-  POSTGRES_PASSWORD: "supersecurepassword"
-  DATABASE_URL: "postgres://appuser:supersecurepassword@postgres:5432/appdb?sslmode=disable"
-EOF
-
-# ========================================
-# 4️⃣ Manifesty production
-# ========================================
-cat <<EOF > ${APP_DIR}/manifests/production/kustomization.yaml
-namespace: ${NAMESPACE}
+cat <<EOF > manifests/base/kustomization.yaml
 resources:
-  - ../../manifests/base
-  - ingress.yaml
-  - servicemonitor.yaml
-  - namespace.yaml
-images:
-  - name: ${REPO_NAME}:placeholder
-    newName: ${IMAGE_REGISTRY}
-    newTag: latest
+  - deployment.yaml
+  - service.yaml
+  - postgres.yaml
 EOF
 
-cat <<EOF > ${APP_DIR}/manifests/production/namespace.yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: ${NAMESPACE}
+# --- Production Overlay ---
+echo "🏗️ [6/10] Tworzenie overlay production..."
+cat <<EOF > manifests/production/kustomization.yaml
+namespace: production
+resources:
+  - ../base
+patchesStrategicMerge: []
 EOF
 
-cat <<EOF > ${APP_DIR}/manifests/production/ingress.yaml
+cat <<EOF > manifests/production/ingress.yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: website-ingress
-  annotations:
-    kubernetes.io/ingress.class: nginx
+  name: go-app
 spec:
   rules:
-    - host: website.local.exea-centrum.pl
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: website
-                port:
-                  number: 80
+  - host: go-app.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: go-app
+            port:
+              number: 80
 EOF
 
-cat <<EOF > ${APP_DIR}/manifests/production/servicemonitor.yaml
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: website-servicemonitor
-  labels:
-    release: prometheus
-spec:
-  selector:
-    matchLabels:
-      app: website
-  endpoints:
-    - port: 80
-      path: /metrics
-      interval: 15s
+cat <<EOF >> manifests/production/kustomization.yaml
+resources:
+  - ingress.yaml
 EOF
 
-# ========================================
-# 5️⃣ ArgoCD Application
-# ========================================
-cat <<EOF > ${APP_DIR}/manifests/production/argocd-application.yaml
+# --- ArgoCD Application ---
+echo "🧭 [7/10] Tworzenie manifestu ArgoCD Application..."
+cat <<EOF > manifests/argocd-application.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: website
+  name: go-app
   namespace: argocd
 spec:
-  project: default
+  destination:
+    namespace: production
+    server: https://kubernetes.default.svc
   source:
-    repoURL: https://github.com/${REPO_OWNER}/${REPO_NAME}.git
+    repoURL: https://github.com/USERNAME/REPO.git
     targetRevision: main
     path: manifests/production
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: ${NAMESPACE}
+  project: default
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
 EOF
 
-# ========================================
-# 6️⃣ GitHub Actions CI/CD
-# ========================================
-cat <<'EOF' > ${APP_DIR}/.github/workflows/ci-cd.yaml
-name: CI/CD Build & Deploy
+# --- GitHub Actions workflow ---
+echo "⚙️ [8/10] Tworzenie GitHub Actions workflow..."
+cat <<'EOF' > .github/workflows/deploy.yml
+name: Build and Deploy
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
+
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
   KUSTOMIZE_PATH: manifests/production
-  PLACEHOLDER: website-argocd-k8s-githubactions-kustomize-kyverno04:placeholder
+  PLACEHOLDER: APPNAME:placeholder
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+    - uses: actions/checkout@v4
 
-      - name: Set tag
-        id: tag
-        run: echo "TAG=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
+    - name: Log in to GitHub Container Registry
+      run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Build & Push image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.TAG }}
-            ${{ env.IMAGE_NAME }}:latest
+    - name: Build and Push Docker Image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ env.IMAGE_NAME }}:${{ github.sha }},${{ env.IMAGE_NAME }}:latest
 
-      - name: Update Kustomize Tag
-        uses: karancode/kustomize-image-tag-update@v1
-        with:
-          kustomize_path: ${{ env.KUSTOMIZE_PATH }}
-          image_name: ${{ env.PLACEHOLDER }}
-          new_tag: ${{ steps.tag.outputs.TAG }}
+    - name: Update Kustomize image
+      run: |
+        sed -i "s|${{ env.PLACEHOLDER }}|${{ env.IMAGE_NAME }}:${{ github.sha }}|" ${{ env.KUSTOMIZE_PATH }}/kustomization.yaml
 
-      - name: Commit and Push
-        uses: EndBug/add-and-commit@v9
-        with:
-          add: 'manifests/production/kustomization.yaml'
-          message: "Update image tag to ${{ steps.tag.outputs.TAG }}"
-          author_name: github-actions[bot]
-          author_email: 41898282+github-actions[bot]@users.noreply.github.com
+    - name: Commit and push updated manifests
+      run: |
+        git config user.name "github-actions"
+        git config user.email "actions@github.com"
+        git add ${{ env.KUSTOMIZE_PATH }}/kustomization.yaml
+        git commit -m "Update image tag to ${{ github.sha }}"
+        git push
 EOF
 
-# ========================================
-# 7️⃣ Wdrożenie ArgoCD Application
-# ========================================
-echo "💾 Wdrażam ArgoCD Application..."
-microk8s kubectl apply -f ${APP_DIR}/manifests/production/argocd-application.yaml
+# --- README ---
+echo "📘 [9/10] Tworzenie README.md..."
+cat <<EOF > README.md
+# 🔥 Aplikacja Go + ArgoCD + Kustomize + GitHub Actions + PostgreSQL
 
-echo "✅ Gotowe! Repozytorium ${REPO_NAME} ma pełną strukturę GitOps."
-echo "📂 Teraz zrób:"
-echo "   cd ${APP_DIR}"
-echo "   git init && git add . && git commit -m 'Initial commit'"
-echo "   git remote add origin https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
-echo "   git push -u origin main"
-echo ""
-echo "💡 Po pushu GitHub Actions zbuduje obraz i ArgoCD wdroży aplikację w MicroK8s."
+## Struktura
+| Element | Opis |
+|----------|------|
+| **Aplikacja Go** | Generowana przez Twój skrypt (src/main.go) z metrykami Prometheus |
+| **PostgreSQL** | Deployment + Service + Secret postgres-secret z hasłem |
+| **Kustomize Base / Production** | base definiuje aplikację i bazę, production dodaje Ingress, ServiceMonitor i namespace |
+| **ArgoCD Application** | Automatycznie śledzi repo i wdraża zmiany po commicie |
+| **GitHub Actions** | Buduje obraz, pushuje do GHCR i aktualizuje kustomization.yaml |
+
+EOF
+
+echo "✅ [10/10] Projekt gotowy!"
+echo "Teraz wykonaj: git init && git add . && git commit -m 'Initial commit' && git push"
