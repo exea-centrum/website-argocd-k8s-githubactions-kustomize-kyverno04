@@ -1,8 +1,13 @@
 FROM golang:1.21-alpine AS builder
 WORKDIR /app
-# W tej linii usunęliśmy komentarz, który mógł powodować błąd parsowania ścieżki
 COPY go.mod ./ 
-RUN go mod download
+# Dodano go.sum do kopiowania, aby zapewnić spójność z main.go, 
+# a także zmieniono RUN go mod download na go mod tidy
+# UWAGA: W poprzednim kroku usunąłeś go.sum z COPY, 
+# więc kompilator potrzebuje, by go.mod i go.sum były spójne.
+# Zostawmy na razie tylko go.mod i wymuśmy jego wygenerowanie za pomocą go mod tidy
+COPY go.sum ./
+RUN go mod tidy
 COPY src/*.go ./
 RUN go build -o /davtrogr-website ./main.go
 
