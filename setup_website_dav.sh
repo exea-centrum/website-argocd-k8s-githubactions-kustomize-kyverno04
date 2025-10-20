@@ -75,70 +75,70 @@ cat <<EOF_GO > ${APP_DIR}/src/main.go
 package main
 
 import (
-	"fmt"
-	"log"
-	"net/http"
-	"os"
-	"time"
+  "fmt"
+  "log"
+  "net/http"
+  "os"
+  "time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+  "github.com/prometheus/client_golang/prometheus"
+  "github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Mock dla konfiguracji połączenia z bazą danych
 const (
-	DB_HOST = "postgres-service"
-	DB_PORT = "5432"
-	DB_USER = "appuser"
-	DB_NAME = "davtrogrdb"
+  DB_HOST = "postgres-service"
+  DB_PORT = "5432"
+  DB_USER = "appuser"
+  DB_NAME = "davtrogrdb"
 )
 
 var (
-	// Metryki Prometheus
-	httpRequestsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{Name: "http_requests_total", Help: "Liczba zapytań HTTP."},
-		[]string{"path", "method", "code"},
-	)
-	httpRequestDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{Name: "http_request_duration_seconds", Help: "Histogram czasu trwania zapytań HTTP."},
-		[]string{"path", "method"},
-	)
-	// Treść strony pobrana ze wskazanej witryny (zasymulowana)
-	pageContent = \`${MOCKED_CONTENT}\`
+  // Metryki Prometheus
+  httpRequestsTotal = prometheus.NewCounterVec(
+    prometheus.CounterOpts{Name: "http_requests_total", Help: "Liczba zapytań HTTP."},
+    []string{"path", "method", "code"},
+  )
+  httpRequestDuration = prometheus.NewHistogramVec(
+    prometheus.HistogramOpts{Name: "http_request_duration_seconds", Help: "Histogram czasu trwania zapytań HTTP."},
+    []string{"path", "method"},
+  )
+  // Treść strony pobrana ze wskazanej witryny (zasymulowana)
+  pageContent = \`${MOCKED_CONTENT}\`
 )
 
 func init() {
-	prometheus.MustRegister(httpRequestsTotal)
-	prometheus.MustRegister(httpRequestDuration)
+  prometheus.MustRegister(httpRequestsTotal)
+  prometheus.MustRegister(httpRequestDuration)
 }
 
 func main() {
-	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-	
-	dbPassword := os.Getenv("DB_PASSWORD")
-	log.Printf("Baza danych: host=%s, user=%s, hasło_status=%t", DB_HOST, DB_USER, dbPassword != "")
-	// W tym miejscu w prawdziwej aplikacji nastąpiłoby połączenie z DB
+  log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+  
+  dbPassword := os.Getenv("DB_PASSWORD")
+  log.Printf("Baza danych: host=%s, user=%s, hasło_status=%t", DB_HOST, DB_USER, dbPassword != "")
+  // W tym miejscu w prawdziwej aplikacji nastąpiłoby połączenie z DB
 
-	http.HandleFunc("/", loggingMiddleware(homeHandler))
-	http.HandleFunc("/healthz", healthzHandler)
-	http.Handle("/metrics", promhttp.Handler())
+  http.HandleFunc("/", loggingMiddleware(homeHandler))
+  http.HandleFunc("/healthz", healthzHandler)
+  http.Handle("/metrics", promhttp.Handler())
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+  port := os.Getenv("PORT")
+  if port == "" {
+    port = "8080"
+  }
 
-	log.Printf("Serwer nasłuchuje na :%s", port)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatalf("Błąd uruchomienia serwera: %v", err)
-	}
+  log.Printf("Serwer nasłuchuje na :%s", port)
+  if err := http.ListenAndServe(":"+port, nil); err != nil {
+    log.Fatalf("Błąd uruchomienia serwera: %v", err)
+  }
 }
 
 // Handler głównej strony z HTML/CSS i wstrzykniętą treścią
 func homeHandler(w http.ResponseWriter, r *http.Request) {
-	dbStatus := "Baza Danych: Osiągalna (postgres-service)"
-	
-	htmlContent := fmt.Sprintf(\`
+  dbStatus := "Baza Danych: Osiągalna (postgres-service)"
+  
+  htmlContent := fmt.Sprintf(\`
 <!DOCTYPE html>
 <html lang="pl">
 <head>
@@ -172,31 +172,31 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 </html>
 \`, DB_NAME, pageContent, dbStatus)
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(htmlContent))
+  w.Header().Set("Content-Type", "text/html; charset=utf-8")
+  w.WriteHeader(http.StatusOK)
+  w.Write([]byte(htmlContent))
 }
 
 # --- Funkcje pomocnicze do monitoringu (Logging Middleware, Healthz, Wrapper) ---
 type responseWriterWrapper struct { http.ResponseWriter; statusCode int }
 func (lrw *responseWriterWrapper) WriteHeader(code int) { lrw.statusCode = code; lrw.ResponseWriter.WriteHeader(code) }
 func loggingMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		lw := &responseWriterWrapper{ResponseWriter: w}
-		next(lw, r)
-		duration := time.Since(start).Seconds()
-		path := r.URL.Path
-		method := r.Method
-		statusCode := fmt.Sprintf("%d", lw.statusCode)
-		log.Printf("Zapytanie: %s %s | Status: %s | Czas: %v", method, path, statusCode, duration)
-		httpRequestsTotal.WithLabelValues(path, method, statusCode).Inc()
-		httpRequestDuration.WithLabelValues(path, method).Observe(duration)
-	}
+  return func(w http.ResponseWriter, r *http.Request) {
+    start := time.Now()
+    lw := &responseWriterWrapper{ResponseWriter: w}
+    next(lw, r)
+    duration := time.Since(start).Seconds()
+    path := r.URL.Path
+    method := r.Method
+    statusCode := fmt.Sprintf("%d", lw.statusCode)
+    log.Printf("Zapytanie: %s %s | Status: %s | Czas: %v", method, path, statusCode, duration)
+    httpRequestsTotal.WithLabelValues(path, method, statusCode).Inc()
+    httpRequestDuration.WithLabelValues(path, method).Observe(duration)
+  }
 }
 func healthzHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("ok"))
+  w.WriteHeader(http.StatusOK)
+  w.Write([]byte("ok"))
 }
 EOF_GO
 
@@ -205,7 +205,7 @@ cat <<EOF_MOD > ${APP_DIR}/go.mod
 module ${REPO_OWNER}/${REPO_NAME}
 go 1.21
 require (
-	github.com/prometheus/client_golang v1.17.0
+  github.com/prometheus/client_golang v1.17.0
 )
 EOF_MOD
 
@@ -436,6 +436,7 @@ EOF_K_ARGO
 echo "✅ Manifest ArgoCD Application wygenerowany. Wskaże na repo: ${REPO_HTTPS_URL}"
 
 # --- 8. Generowanie pliku GitHub Actions (CI/CD) ---
+# POPRAWIONA GENERACJA YAML DLA KUSTOMIZE I TAGOWANIA
 cat <<EOF_GA > ${APP_DIR}/.github/workflows/ci-cd.yaml
 name: CI/CD Build & Deploy
 
@@ -449,8 +450,14 @@ on:
       - 'go.mod'
 
 env:
-  DOCKER_IMAGE: \${{ secrets.GHCR_REGISTRY }}/\${{ github.repository }}
+  # Pełna ścieżka do rejestru GHCR (np. ghcr.io/user/repo-name)
+  DOCKER_IMAGE_FULL_PATH: \${{ secrets.GHCR_REGISTRY }}/\${{ github.repository }}
+  # Ścieżka do katalogu Kustomize
   KUSTOMIZE_PATH: manifests/production
+  # Stała nazwa obrazu używana jako PLACEHOLDER w manifests/production/kustomization.yaml
+  KUSTOMIZE_IMAGE_NAME: ${REPO_NAME}:placeholder
+  # Stały tag 'latest'
+  STABLE_TAG: latest
 
 jobs:
   build-and-push:
@@ -467,7 +474,7 @@ jobs:
           username: \${{ github.actor }}
           password: \${{ secrets.GITHUB_TOKEN }}
           
-      # Ustalanie TAGu na podstawie SHA commitu
+      # Ustalanie TAGu na podstawie SHA commitu (pierwsze 7 znaków)
       - name: Set Image Tag
         id: set_tag
         run: echo "TAG=\$(echo \${{ github.sha }} | head -c 7)" >> \$GITHUB_OUTPUT
@@ -478,8 +485,10 @@ jobs:
         with:
           context: .
           push: true
-          tags: |\${{ env.DOCKER_IMAGE }}:\${{ steps.set_tag.outputs.TAG }}
-                \${{ env.DOCKER_IMAGE }}:\${{ env.IMAGE_TAG_PLACEHOLDER }}
+          # Tagowanie SHA i tagiem STABLE_TAG ('latest')
+          tags: |
+            \${{ env.DOCKER_IMAGE_FULL_PATH }}:\${{ steps.set_tag.outputs.TAG }}
+            \${{ env.DOCKER_IMAGE_FULL_PATH }}:\${{ env.STABLE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -488,7 +497,8 @@ jobs:
         uses: karancode/kustomize-image-tag-update@v1
         with:
           kustomize_path: \${{ env.KUSTOMIZE_PATH }}
-          image_name: \${{ env.DOCKER_IMAGE }}
+          # POPRAWKA: Używamy stałego KUSTOMIZE_IMAGE_NAME (placeholder)
+          image_name: \${{ env.KUSTOMIZE_IMAGE_NAME }} 
           new_tag: \${{ steps.set_tag.outputs.TAG }}
 
       # Commit i Push zaktualizowanego pliku Kustomize
@@ -512,9 +522,7 @@ echo "================================================================"
 echo "                   Proces Inicjalizacji GitOps Zakończony!      "
 echo "================================================================="
 echo ""
-echo "!!! KROK 1: Zmień właściciela repozytorium (REPO_OWNER) w plikach:"
-echo "   Edytuj plik: ${APP_DIR}/deploy_davtrogr.sh (aby mieć poprawną zmienną lokalnie)"
-echo "   Oraz plik:   ${APP_DIR}/manifests/argocd/davtrogr-app.yaml (URL repozytorium)"
+echo "!!! KROK 1: Pamiętaj, aby UTWORZYĆ repozytorium na GitHub o nazwie: ${REPO_NAME}"
 echo ""
 echo "!!! KROK 2: Utwórz repozytorium na GitHub i wyślij pliki:"
 echo "   cd ${APP_DIR}"

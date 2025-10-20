@@ -1,36 +1,36 @@
 package main
 
 import (
-	"fmt"
-	"log"
-	"net/http"
-	"os"
-	"time"
+  "fmt"
+  "log"
+  "net/http"
+  "os"
+  "time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+  "github.com/prometheus/client_golang/prometheus"
+  "github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Mock dla konfiguracji połączenia z bazą danych
 const (
-	DB_HOST = "postgres-service"
-	DB_PORT = "5432"
-	DB_USER = "appuser"
-	DB_NAME = "davtrogrdb"
+  DB_HOST = "postgres-service"
+  DB_PORT = "5432"
+  DB_USER = "appuser"
+  DB_NAME = "davtrogrdb"
 )
 
 var (
-	// Metryki Prometheus
-	httpRequestsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{Name: "http_requests_total", Help: "Liczba zapytań HTTP."},
-		[]string{"path", "method", "code"},
-	)
-	httpRequestDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{Name: "http_request_duration_seconds", Help: "Histogram czasu trwania zapytań HTTP."},
-		[]string{"path", "method"},
-	)
-	// Treść strony pobrana ze wskazanej witryny (zasymulowana)
-	pageContent = `<h2>O Mnie</h2>
+  // Metryki Prometheus
+  httpRequestsTotal = prometheus.NewCounterVec(
+    prometheus.CounterOpts{Name: "http_requests_total", Help: "Liczba zapytań HTTP."},
+    []string{"path", "method", "code"},
+  )
+  httpRequestDuration = prometheus.NewHistogramVec(
+    prometheus.HistogramOpts{Name: "http_request_duration_seconds", Help: "Histogram czasu trwania zapytań HTTP."},
+    []string{"path", "method"},
+  )
+  // Treść strony pobrana ze wskazanej witryny (zasymulowana)
+  pageContent = `<h2>O Mnie</h2>
 <p>Jestem entuzjastą DevOps, specjalizującym się w automatyzacji, konteneryzacji (Docker, Kubernetes) oraz CI/CD. To wdrożenie jest zarządzane przez ArgoCD, które synchronizuje manifesty z repozytorium GitHub.</p>
 <h2>Technologie w Użyciu</h2>
 <ul>
@@ -43,37 +43,37 @@ var (
 )
 
 func init() {
-	prometheus.MustRegister(httpRequestsTotal)
-	prometheus.MustRegister(httpRequestDuration)
+  prometheus.MustRegister(httpRequestsTotal)
+  prometheus.MustRegister(httpRequestDuration)
 }
 
 func main() {
-	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-	
-	dbPassword := os.Getenv("DB_PASSWORD")
-	log.Printf("Baza danych: host=%s, user=%s, hasło_status=%t", DB_HOST, DB_USER, dbPassword != "")
-	// W tym miejscu w prawdziwej aplikacji nastąpiłoby połączenie z DB
+  log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+  
+  dbPassword := os.Getenv("DB_PASSWORD")
+  log.Printf("Baza danych: host=%s, user=%s, hasło_status=%t", DB_HOST, DB_USER, dbPassword != "")
+  // W tym miejscu w prawdziwej aplikacji nastąpiłoby połączenie z DB
 
-	http.HandleFunc("/", loggingMiddleware(homeHandler))
-	http.HandleFunc("/healthz", healthzHandler)
-	http.Handle("/metrics", promhttp.Handler())
+  http.HandleFunc("/", loggingMiddleware(homeHandler))
+  http.HandleFunc("/healthz", healthzHandler)
+  http.Handle("/metrics", promhttp.Handler())
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+  port := os.Getenv("PORT")
+  if port == "" {
+    port = "8080"
+  }
 
-	log.Printf("Serwer nasłuchuje na :%s", port)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatalf("Błąd uruchomienia serwera: %v", err)
-	}
+  log.Printf("Serwer nasłuchuje na :%s", port)
+  if err := http.ListenAndServe(":"+port, nil); err != nil {
+    log.Fatalf("Błąd uruchomienia serwera: %v", err)
+  }
 }
 
 // Handler głównej strony z HTML/CSS i wstrzykniętą treścią
 func homeHandler(w http.ResponseWriter, r *http.Request) {
-	dbStatus := "Baza Danych: Osiągalna (postgres-service)"
-	
-	htmlContent := fmt.Sprintf(`
+  dbStatus := "Baza Danych: Osiągalna (postgres-service)"
+  
+  htmlContent := fmt.Sprintf(`
 <!DOCTYPE html>
 <html lang="pl">
 <head>
@@ -107,29 +107,29 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 </html>
 `, DB_NAME, pageContent, dbStatus)
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(htmlContent))
+  w.Header().Set("Content-Type", "text/html; charset=utf-8")
+  w.WriteHeader(http.StatusOK)
+  w.Write([]byte(htmlContent))
 }
 
 # --- Funkcje pomocnicze do monitoringu (Logging Middleware, Healthz, Wrapper) ---
 type responseWriterWrapper struct { http.ResponseWriter; statusCode int }
 func (lrw *responseWriterWrapper) WriteHeader(code int) { lrw.statusCode = code; lrw.ResponseWriter.WriteHeader(code) }
 func loggingMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		lw := &responseWriterWrapper{ResponseWriter: w}
-		next(lw, r)
-		duration := time.Since(start).Seconds()
-		path := r.URL.Path
-		method := r.Method
-		statusCode := fmt.Sprintf("%d", lw.statusCode)
-		log.Printf("Zapytanie: %s %s | Status: %s | Czas: %v", method, path, statusCode, duration)
-		httpRequestsTotal.WithLabelValues(path, method, statusCode).Inc()
-		httpRequestDuration.WithLabelValues(path, method).Observe(duration)
-	}
+  return func(w http.ResponseWriter, r *http.Request) {
+    start := time.Now()
+    lw := &responseWriterWrapper{ResponseWriter: w}
+    next(lw, r)
+    duration := time.Since(start).Seconds()
+    path := r.URL.Path
+    method := r.Method
+    statusCode := fmt.Sprintf("%d", lw.statusCode)
+    log.Printf("Zapytanie: %s %s | Status: %s | Czas: %v", method, path, statusCode, duration)
+    httpRequestsTotal.WithLabelValues(path, method, statusCode).Inc()
+    httpRequestDuration.WithLabelValues(path, method).Observe(duration)
+  }
 }
 func healthzHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("ok"))
+  w.WriteHeader(http.StatusOK)
+  w.Write([]byte("ok"))
 }

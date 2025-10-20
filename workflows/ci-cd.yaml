@@ -10,8 +10,14 @@ on:
       - 'go.mod'
 
 env:
-  DOCKER_IMAGE: ${{ secrets.GHCR_REGISTRY }}/${{ github.repository }}
+  # Pełna ścieżka do rejestru GHCR (np. ghcr.io/user/repo-name)
+  DOCKER_IMAGE_FULL_PATH: ${{ secrets.GHCR_REGISTRY }}/${{ github.repository }}
+  # Ścieżka do katalogu Kustomize
   KUSTOMIZE_PATH: manifests/production
+  # Stała nazwa obrazu używana jako PLACEHOLDER w manifests/production/kustomization.yaml
+  KUSTOMIZE_IMAGE_NAME: website-argocd-k8s-githubactions-kustomize-kyverno04:placeholder
+  # Stały tag 'latest'
+  STABLE_TAG: latest
 
 jobs:
   build-and-push:
@@ -28,7 +34,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
           
-      # Ustalanie TAGu na podstawie SHA commitu
+      # Ustalanie TAGu na podstawie SHA commitu (pierwsze 7 znaków)
       - name: Set Image Tag
         id: set_tag
         run: echo "TAG=$(echo ${{ github.sha }} | head -c 7)" >> $GITHUB_OUTPUT
@@ -39,8 +45,10 @@ jobs:
         with:
           context: .
           push: true
-          tags: |${{ env.DOCKER_IMAGE }}:${{ steps.set_tag.outputs.TAG }}
-                ${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG_PLACEHOLDER }}
+          # Tagowanie SHA i tagiem STABLE_TAG ('latest')
+          tags: |
+            ${{ env.DOCKER_IMAGE_FULL_PATH }}:${{ steps.set_tag.outputs.TAG }}
+            ${{ env.DOCKER_IMAGE_FULL_PATH }}:${{ env.STABLE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -49,7 +57,8 @@ jobs:
         uses: karancode/kustomize-image-tag-update@v1
         with:
           kustomize_path: ${{ env.KUSTOMIZE_PATH }}
-          image_name: ${{ env.DOCKER_IMAGE }}
+          # POPRAWKA: Używamy stałego KUSTOMIZE_IMAGE_NAME (placeholder)
+          image_name: ${{ env.KUSTOMIZE_IMAGE_NAME }} 
           new_tag: ${{ steps.set_tag.outputs.TAG }}
 
       # Commit i Push zaktualizowanego pliku Kustomize
