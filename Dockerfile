@@ -6,7 +6,9 @@ WORKDIR /app
 COPY go.mod go.sum ./
 
 # Krok 2: Pobranie i weryfikacja wszystkich zależności.
-# 'go mod tidy' zapewni spójność go.sum, a także pobierze wymagane pakiety.
+# Najpierw pobierz, aby upewnić się, że moduły są fizycznie obecne.
+RUN go mod download
+# Następnie uporządkuj go.sum.
 RUN go mod tidy
 
 # Krok 3: Kopiowanie plików źródłowych i kompilacja
