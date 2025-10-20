@@ -2,13 +2,11 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: website-servicemonitor
-  labels:
-    release: prometheus
 spec:
   selector:
     matchLabels:
       app: website
   endpoints:
-    - port: 80
+    - port: http # 👈 nazwa portu z Service, nie numer!
       path: /metrics
       interval: 15s
