@@ -1,59 +1,62 @@
-name: Build and Deploy to GHCR
+name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'Dockerfile'
-      - 'go.mod'
-
-permissions:
-  contents: write
-  packages: write
+    branches:
+      - main
 
 env:
-  IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+  IMAGE_REPOSITORY: ghcr.io/exea-centrum/website-argocd-k8s-githubactions-kustomize-kyverno04
   KUSTOMIZE_PATH: manifests/production
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Log in to GHCR
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set image tag
+      - name: Extract short commit SHA
         id: tag
-        run: echo "TAG=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+        run: echo "TAG=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
 
-      - name: Build and push image
-        uses: docker/build-push-action@v5
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: |
-            ${{ env.IMAGE_REPOSITORY }}:${{ steps.tag.outputs.TAG }}
+            ${{ env.IMAGE_REPOSITORY }}:${{ env.TAG }}
             ${{ env.IMAGE_REPOSITORY }}:latest
 
-      - name: Update Kustomize image tag
+      - name: Install kustomize
         run: |
           curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
           sudo mv kustomize /usr/local/bin/
-          kustomize edit set image ${{ env.IMAGE_REPOSITORY }}=${{ env.IMAGE_REPOSITORY }}:${{ steps.tag.outputs.TAG }} --kustomization ${{ env.KUSTOMIZE_PATH }}
-          cat ${{ env.KUSTOMIZE_PATH }}/kustomization.yaml
+          kustomize version
 
-      - name: Commit and push changes
-        uses: EndBug/add-and-commit@v9
-        with:
-          author_name: github-actions[bot]
-          author_email: 41898282+github-actions[bot]@users.noreply.github.com
-          message: "Update image tag to ${{ steps.tag.outputs.TAG }}"
-          add: '${{ env.KUSTOMIZE_PATH }}/kustomization.yaml'
+      - name: Update Kustomize image tag
+        run: |
+          cd ${{ env.KUSTOMIZE_PATH }}
+          kustomize edit set image ${{ env.IMAGE_REPOSITORY }}=${{ env.IMAGE_REPOSITORY }}:${{ env.TAG }}
+          echo "✅ Updated kustomization.yaml:"
+          cat kustomization.yaml
+
+      - name: Commit and push Kustomize changes
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add ${{ env.KUSTOMIZE_PATH }}/kustomization.yaml
+          git commit -m "chore: update image tag to ${{ env.TAG }}" || echo "No changes to commit"
+          git push
