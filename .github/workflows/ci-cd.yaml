@@ -78,7 +78,7 @@ jobs:
             
           cat ${{ env.KUSTOMIZE_PATH }}/kustomization.yaml # Weryfikacja
 
-      # Commit i Push zaktualizowanego pliku Kustomize
+      # Commit i Push zaktualizowanego pliku Kustomize dddd
       - name: Commit and Push Kustomize Update
         uses: EndBug/add-and-commit@v9
         with:
