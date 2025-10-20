@@ -5,11 +5,10 @@ WORKDIR /app
 # zależności, jeśli go.mod/go.sum się nie zmieniły.
 COPY go.mod go.sum ./
 
-# Krok 2: Pobranie i weryfikacja wszystkich zależności.
-# Najpierw pobierz, aby upewnić się, że moduły są fizycznie obecne.
+# Krok 2: Pobranie wszystkich zależności. 
+# Zamiast go mod tidy, uzywamy tylko go mod download, 
+# ufając, że skopiowany go.sum jest juz poprawny.
 RUN go mod download
-# Następnie uporządkuj go.sum.
-RUN go mod tidy
 
 # Krok 3: Kopiowanie plików źródłowych i kompilacja
 # Kopiujemy kod źródłowy po modyfikacjach modułów.
