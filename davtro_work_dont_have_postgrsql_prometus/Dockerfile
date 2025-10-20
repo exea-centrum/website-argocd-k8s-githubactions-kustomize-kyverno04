@@ -2,24 +2,23 @@ FROM golang:1.21-alpine AS builder
 
 WORKDIR /app
 
-# Skopiuj definicję modułów i pobierz zależności
+# Skopiuj definicje modułów i spróbuj pobrać zależności
 COPY go.mod ./
-RUN go mod tidy
+RUN go mod tidy || true
+RUN go mod download || true
 
-# Skopiuj źródła
+# Skopiuj kod źródłowy
 COPY src/*.go ./
 
-# Upewnij się, że zależności są zaciągnięte (wygeneruje go.sum)
-RUN go mod download
+# Jeszcze raz uruchom tidy (teraz z pełnym kodem, by wygenerować brakujące wpisy)
+RUN go mod tidy && go mod download
 
-# Buduj binarkę
+# Zbuduj binarkę
 RUN go build -o app
 
-# Faza końcowa - minimalny obraz
+# Druga faza – minimalny obraz
 FROM alpine:latest
-
 WORKDIR /root/
 COPY --from=builder /app/app .
-
 EXPOSE 8080
 CMD ["./app"]
