@@ -1,6 +1,7 @@
 FROM golang:1.21-alpine AS builder
 WORKDIR /app
-COPY go.mod ./ # Zmienione z COPY go.mod go.sum ./
+# W tej linii usunęliśmy komentarz, który mógł powodować błąd parsowania ścieżki
+COPY go.mod ./ 
 RUN go mod download
 COPY src/*.go ./
 RUN go build -o /davtrogr-website ./main.go
