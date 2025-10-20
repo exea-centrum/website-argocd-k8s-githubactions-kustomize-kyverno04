@@ -1,0 +1,10 @@
+namespace: production
+resources:
+  - ../../manifests/base
+  - ingress.yaml
+  - servicemonitor.yaml
+  - namespace.yaml
+images:
+  - name: website-argocd-k8s-githubactions-kustomize-kyverno04:placeholder
+    newName: ghcr.io/exea-centrum/website-argocd-k8s-githubactions-kustomize-kyverno04
+    newTag: latest
