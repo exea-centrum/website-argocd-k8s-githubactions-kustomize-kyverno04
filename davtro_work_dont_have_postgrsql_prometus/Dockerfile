@@ -1,30 +1,27 @@
-# -----------------------
-#  Stage 1: Builder
-# -----------------------
+# ============================
+# Stage 1: Build Go app
+# ============================
 FROM golang:1.21-alpine AS builder
 
 WORKDIR /app
 
-# Skopiuj tylko plik go.mod (lub utwórz, jeśli nie istnieje)
-COPY go.mod* . || true
+# Skopiuj kod źródłowy
+COPY src/*.go ./
 
-# Zainicjalizuj moduł, jeśli nie istnieje
-RUN if [ ! -f go.mod ]; then go mod init app; fi
+# Jeśli brak go.mod, utwórz go dynamicznie
+RUN if [ ! -f go.mod ]; then go mod init example.com/app; fi
 
-# Pobierz zależności Prometheusa
+# Dodaj zależności Prometheusa i zapisz go.sum
 RUN go get github.com/prometheus/client_golang/prometheus \
     && go get github.com/prometheus/client_golang/prometheus/promhttp \
     && go mod tidy
 
-# Skopiuj kod źródłowy
-COPY src/*.go ./
-
 # Zbuduj binarkę
-RUN go build -o app .
+RUN go build -o app main.go
 
-# -----------------------
-#  Stage 2: Final Image
-# -----------------------
+# ============================
+# Stage 2: Minimalny obraz
+# ============================
 FROM alpine:latest
 
 WORKDIR /root/
