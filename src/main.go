@@ -11,7 +11,6 @@ import (
   "github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-
 // Mock dla konfiguracji połączenia z bazą danych
 const (
   DB_HOST = "postgres-service"

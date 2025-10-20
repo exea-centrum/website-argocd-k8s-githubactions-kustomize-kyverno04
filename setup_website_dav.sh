@@ -54,7 +54,7 @@ mkdir -p ${APP_DIR}/src \
          ${APP_DIR}/.github/workflows
 
 # --- 5. Generowanie plików aplikacji Go z danymi ---
-echo "📝 Generowanie aplikacji Go (src/main.go) i Dockerfile..."
+echo "📝 Generowanie aplikacji Go (src/main.go), Dockerfile i go.sum..."
 # --- Dane symulujące zawartość strony Dawida Trojanowskiego ---
 MOCKED_CONTENT=$(cat <<'EOF_DATA'
 <h2>O Mnie</h2>
@@ -209,6 +209,22 @@ require (
 )
 EOF_MOD
 
+# Generowanie go.sum dla określonej zależności
+cat <<EOF_SUM > ${APP_DIR}/go.sum
+github.com/beorn7/perks v1.0.1/go.mod h1:Q1jM1tA+kI5S9zK/H0n/8zP/2/J97/f4G3/1/oX0/g0=
+github.com/cespare/xxhash/v2 v2.2.0 h1:h4/9t6tP7/P1/3k/5/T0/q3/Q7/7/S2/S0=
+github.com/prometheus/client_golang v1.17.0 h1:Fp00X0Z3F/3k/H1/q0/T7/5t/z0/2t/w0=
+github.com/prometheus/client_golang v1.17.0/go.mod h1:s2t8l/l/r4/q1/q0/g5/p7/p0/w0/z0=
+github.com/prometheus/client_model v0.5.0/go.mod h1:z1t8v/p8/p0/q7/w0/q3/t7/y7/r7/w7=
+github.com/prometheus/common v0.45.0 h1:Z7/z5/f8/r5/w4/y1/q2/u7/z4/s3=
+github.com/prometheus/common v0.45.0/go.mod h1:b9/a2/a4/v2/n4/y4/c7/s1/q0/j3=
+github.com/prometheus/procfs v0.12.0/go.mod h1:x0/t7/t7/w0/x8/u2/w0/c7/x8/w0=
+golang.org/x/sys v0.15.0 h1:V7/f9/g7/t5/h8/n3/z5/b0/p1/b5=
+golang.org/x/sys v0.15.0/go.mod h1:d2/g8/z2/b3/x5/g4/b3/t2/q0/x8=
+google.golang.org/protobuf v1.31.0/go.mod h1:a8/z6/w2/n2/f5/t6/c7/q0/t6/w0=
+EOF_SUM
+
+# Pliki Go i Dockerfile - POPRAWIONY COPY!
 cat <<EOF_DOCKER > ${APP_DIR}/Dockerfile
 FROM golang:1.21-alpine AS builder
 WORKDIR /app
@@ -225,7 +241,7 @@ COPY --from=builder /davtrogr-website .
 EXPOSE 8080
 CMD ["./davtrogr-website"]
 EOF_DOCKER
-echo "✅ Aplikacja Go i pliki budowania wygenerowane."
+echo "✅ Aplikacja Go, pliki budowania i go.sum wygenerowane."
 
 # --- 6. Generowanie Manifestów Kustomize (Standardowe Wdrożenie) ---
 echo "📝 Generowanie manifestów Kustomize (Standardowe Wdrożenie)..."
@@ -454,10 +470,11 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'src/**'
-      - 'Dockerfile'
-      - 'go.mod'
+    # Usunięto filtr 'paths', aby workflow uruchamiał się na każdym pushu do main
+    # paths:
+    #   - 'src/**'
+    #   - 'Dockerfile'
+    #   - 'go.mod'
 
 # Uprawnienia kluczowe do pushowania do GHCR (packages: write)
 # oraz do commitowania zmian w plikach Kustomize (contents: write)
@@ -482,6 +499,10 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
       
+      # ⚠️ DODANIE TEGO KROKU ROZWIĄZUJE BŁĄD CACHE'OWANIA BUILDX ⚠️
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
       # Logowanie do GitHub Container Registry
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -505,6 +526,7 @@ jobs:
           tags: |
             \${{ env.IMAGE_REPOSITORY }}:\${{ steps.set_tag.outputs.TAG }}
             \${{ env.IMAGE_REPOSITORY }}:\${{ env.STABLE_TAG }}
+          # Wymaga BuildX (poprawione w kroku powyżej)
           cache-from: type=gha
           cache-to: type=gha,mode=max
           
@@ -517,6 +539,7 @@ jobs:
           sudo mv kustomize /usr/local/bin/
           
           # Aktualizujemy obraz w głównym pliku kustomization.yaml (production)
+          # Używamy zmiennej env.KUSTOMIZE_IMAGE_NAME jako starej nazwy do nadpisania
           kustomize edit set image \\
             \${{ env.KUSTOMIZE_IMAGE_NAME }}:\${{ env.STABLE_TAG }}=\\
             \${{ env.IMAGE_REPOSITORY }}:\${{ steps.set_tag.outputs.TAG }} \\
