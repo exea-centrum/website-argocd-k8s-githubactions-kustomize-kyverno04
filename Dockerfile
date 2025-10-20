@@ -1,16 +1,17 @@
 FROM golang:1.21-alpine AS builder
 WORKDIR /app
 
-# Kopiowanie plików definicji modułów: go.mod i go.sum. 
-# MUSZĄ być skopiowane razem, aby zapewnić spójność zależności.
+# Krok 1: Kopiowanie wszystkich plików projektu (moduły i kod źródłowy) 
+# przed manipulacją modułami. To zapewnia, że 'go mod tidy' widzi wszystkie zależności
+# i poprawnie aktualizuje go.sum, przygotowując wszystko do kompilacji.
 COPY go.mod go.sum ./
+COPY src/*.go ./
 
-# Pobrane zależności i ich weryfikacja/aktualizacja.
-# 'go mod tidy' pobiera moduły i aktualizuje go.sum.
+# Krok 2: Pobranie i weryfikacja wszystkich zależności.
+# 'go mod tidy' zapewni spójność go.sum, a także pobierze wymagane pakiety.
 RUN go mod tidy
 
-# Kopiowanie plików źródłowych i kompilacja
-COPY src/*.go ./
+# Krok 3: Kompilacja binarki
 RUN go build -o /davtrogr-website ./main.go
 
 FROM alpine:latest
