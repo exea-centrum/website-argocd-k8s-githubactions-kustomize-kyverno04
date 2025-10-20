@@ -4,3 +4,7 @@ namespace: davtrogr
 resources:
 - ../base
 - namespace.yaml
+images:
+- name: ghcr.io/exea-centrum/website-argocd-k8s-githubactions-kustomize-kyverno04
+  newName: ghcr.io/exea-centrum/website-argocd-k8s-githubactions-kustomize-kyverno04
+  newTag: 86d7cbd
