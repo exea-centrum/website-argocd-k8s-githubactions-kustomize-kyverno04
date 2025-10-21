@@ -1,46 +1,50 @@
-name: Build and Deploy to ArgoCD
-
+name: CI/CD Build & Deploy
 on:
   push:
-    branches:
-      - main
+    branches: ["main"]
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+  KUSTOMIZE_PATH: manifests/production
+  PLACEHOLDER: website-argocd-k8s-githubactions-kustomize-kyverno04:placeholder
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      packages: write
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 1.21
-
-      - name: Build Docker image
-        run: |
-          docker build -t ghcr.io/exea-centrum/website-argocd-k8s-githubactions-kustomize-kyverno04:${{ github.sha }} .
+      - uses: actions/checkout@v4
 
       - name: Log in to GHCR
-        run: echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PAT }}
 
-      - name: Push image
-        run: docker push ghcr.io/exea-centrum/website-argocd-k8s-githubactions-kustomize-kyverno04:${{ github.sha }}
+      - name: Set tag
+        id: tag
+        run: echo "TAG=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
 
-      - name: Update Kustomize image tag
-        uses: imranismail/setup-kustomize@v2
-      - run: |
-          cd manifests/base
-          kustomize edit set image ghcr.io/exea-centrum/website-argocd-k8s-githubactions-kustomize-kyverno04=ghcr.io/exea-centrum/website-argocd-k8s-githubactions-kustomize-kyverno04:${{ github.sha }}
+      - name: Build & Push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.TAG }}
+            ${{ env.IMAGE_NAME }}:latest
 
-      - name: Commit and push changes
+      - name: Update Kustomize Tag
         run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@github.com"
-          git add manifests/base/kustomization.yaml
-          git commit -m "update image tag to ${{ github.sha }}"
-          git push
+          TAG=${{ steps.tag.outputs.TAG }}
+          FILE="${{ env.KUSTOMIZE_PATH }}/kustomization.yaml"
+          echo "🔧 Updating image tag in $FILE to ${TAG}"
+          sed -i "s/newTag: .*/newTag: ${TAG}/" $FILE
+          cat $FILE
+
+      - name: Commit and Push
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: "manifests/production/kustomization.yaml"
+          message: "Update image tag to ${{ steps.tag.outputs.TAG }}"
+          author_name: github-actions[bot]
+          author_email: 41898282+github-actions[bot]@users.noreply.github.com

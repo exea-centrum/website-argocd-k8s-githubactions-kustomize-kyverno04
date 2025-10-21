@@ -1,6 +1,0 @@
-resources:
-  - deployment-app.yaml
-  - service-app.yaml
-  - deployment-postgres.yaml
-  - service-postgres.yaml
-  - secret-postgres.yaml
