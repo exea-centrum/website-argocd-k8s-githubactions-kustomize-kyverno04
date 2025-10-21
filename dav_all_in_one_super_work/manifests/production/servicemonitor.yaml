@@ -1,0 +1,12 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: website-servicemonitor
+spec:
+  selector:
+    matchLabels:
+      app: website
+  endpoints:
+    - port: http # 👈 nazwa portu z Service, nie numer!
+      path: /metrics
+      interval: 15s
