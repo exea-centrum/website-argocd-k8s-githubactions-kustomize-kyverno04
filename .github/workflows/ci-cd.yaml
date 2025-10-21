@@ -26,7 +26,7 @@ jobs:
           docker build -t ghcr.io/exea-centrum/website-argocd-k8s-githubactions-kustomize-kyverno04:${{ github.sha }} .
 
       - name: Log in to GHCR
-        run: echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        run: echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Push image
         run: docker push ghcr.io/exea-centrum/website-argocd-k8s-githubactions-kustomize-kyverno04:${{ github.sha }}
